@@ -1,0 +1,44 @@
+!pip install iisignature 
+
+import numpy as np
+import iisignature
+
+def generate_ou_process(t, theta=1.0, mu=0.0, sigma=1.0, X0=0.0):
+    dt = np.diff(t)
+    n = len(t)
+    X = np.zeros(n)
+    X[0] = X0
+    for i in range(1, n):
+        X[i] = X[i-1] + theta * (mu - X[i-1]) * dt[i-1] + sigma * np.sqrt(dt[i-1]) * np.random.normal()
+    return X
+
+def compute_truncated_signature(X, n=3):
+    # Create a time array assuming equal time steps for simplicity
+    t = np.linspace(0, 1, len(X))
+    path = np.column_stack((t, X))
+    return iisignature.sig(path, n)
+
+def linear_functional(signature, coefficients):
+    return np.dot(signature, coefficients)
+
+# Parameters for the OU process
+t = np.linspace(0, 1, 100)  # Time array from 0 to 1 with 100 points
+theta = 1.0
+mu = 0.0
+sigma = 1.0
+X0 = 0.0
+
+# Generate the OU process
+X = generate_ou_process(t, theta, mu, sigma, X0)
+
+# Compute the truncated signature (n=3)
+signature = compute_truncated_signature(X, n=3)
+
+# Define coefficients for the linear functional (example values)
+coefficients = np.random.randn(len(signature))
+
+# Calculate the linear functional
+linear_func_value = linear_functional(signature, coefficients)
+
+print("Truncated Signature (n=3):", signature)
+print("Linear Functional Value:", linear_func_value)
