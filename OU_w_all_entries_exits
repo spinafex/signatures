@@ -1,0 +1,161 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+def generate_ou_process(x0, mu, theta, sigma, dt, n_steps):
+    """
+    Generate an Ornstein-Uhlenbeck process.
+    
+    Args:
+        x0 (float): Initial value of the process.
+        mu (float): Long-term mean of the process.
+        theta (float): Speed of mean reversion.
+        sigma (float): Volatility of the process.
+        dt (float): Time step.
+        n_steps (int): Number of time steps.
+        
+    Returns:
+        numpy.ndarray: The generated Ornstein-Uhlenbeck process.
+    """
+    x = np.zeros(n_steps + 1)
+    x[0] = x0
+    for i in range(1, n_steps + 1):
+        x[i] = x[i - 1] + theta * (mu - x[i - 1]) * dt + sigma * np.sqrt(dt) * np.random.normal()
+    return x
+
+def optimal_entry_time(X, r, c):
+    """
+    Computes the optimal time for entering a long position given a rough path X,
+    risk-free rate r, and fixed transaction cost c.
+    
+    Args:
+        X (numpy.ndarray): A 1D array representing the rough path sample.
+        r (float): The risk-free rate.
+        c (float): The fixed transaction cost.
+        
+    Returns:
+        int or None: The optimal time for entering a long position.
+    """
+    # Compute the payoff process Y
+    T = len(X)
+    Y = np.zeros(T)
+    for t in range(T):
+        Y[t] = np.exp(-r * t) * (-X[t] - c)
+
+    # Find the supremum of Y and its corresponding timestep
+    supremum_idx = np.argmax(Y)
+    supremum_value = Y[supremum_idx]
+
+    # Check if the supremum is positive (i.e., profitable to enter)
+    if supremum_value > 0:
+        optimal_entry_time = supremum_idx
+    else:
+        optimal_entry_time = None
+
+    return optimal_entry_time
+
+def optimal_exit_time(X, r, c, entry_time):
+    """
+    Computes the optimal time for exiting a long position given a rough path X,
+    risk-free rate r, fixed transaction cost c, and entry time.
+    
+    Args:
+        X (numpy.ndarray): A 1D array representing the rough path sample.
+        r (float): The risk-free rate.
+        c (float): The fixed transaction cost.
+        entry_time (int or None): The optimal time for entering the long position.
+        
+    Returns:
+        int or None: The optimal time for exiting the long position.
+    """
+    if entry_time is None:
+        return None
+    
+    # Compute the payoff process Y
+    T = len(X)
+    Y = np.zeros(T - entry_time)
+    for t in range(entry_time, T):
+        Y[t - entry_time] = np.exp(-r * (t - entry_time)) * (X[t] - c)
+
+    # Find the supremum of Y and its corresponding timestep
+    supremum_idx = np.argmax(Y)
+    supremum_value = Y[supremum_idx]
+
+    # Check if the supremum is positive (i.e., profitable to exit)
+    if supremum_value > 0:
+        optimal_exit_time = supremum_idx + entry_time
+    else:
+        optimal_exit_time = None
+
+    return optimal_exit_time
+
+# Parameters
+x0 = 0.0       # Initial value of the OU process
+mu = 0.0       # Long-term mean
+theta = 0.5    # Speed of mean reversion
+sigma = 0.2    # Volatility
+dt = 0.01      # Time step
+n_steps = 250  # Number of time steps
+
+# Generate the rough path (OU process)
+X = generate_ou_process(x0, mu, theta, sigma, dt, n_steps)
+
+# Risk-free rate and fixed transaction cost
+r = 0.05
+c = .0001
+
+# Compute the payoff process Y
+T = len(X)
+Y = np.zeros(T)
+for t in range(T):
+    Y[t] = np.exp(-r * t) * (-X[t] - c)
+
+# Recursively find the optimal entry and exit times
+optimal_entry_times = []
+optimal_exit_times = []
+current_time = 0
+
+while current_time < T:
+    optimal_entry_time_idx = optimal_entry_time(X[current_time:], r, c)
+    if optimal_entry_time_idx is None:
+        break
+    optimal_entry_time_idx += current_time
+    optimal_entry_times.append(optimal_entry_time_idx)
+    
+    optimal_exit_time_idx = optimal_exit_time(X[optimal_entry_time_idx:], r, c, 0)
+    if optimal_exit_time_idx is None:
+        break
+    optimal_exit_time_idx += optimal_entry_time_idx
+    optimal_exit_times.append(optimal_exit_time_idx)
+    
+    current_time = optimal_exit_time_idx + 1
+
+# Plot the rough path, payoff process, and overlay the optimal entry and exit points
+time = np.arange(n_steps + 1) * dt
+fig, ax1 = plt.subplots(figsize=(10, 6))
+
+ax1.plot(time, X, label='Rough Path (OU Process)')
+ax1.set_xlabel('Time')
+ax1.set_ylabel('Rough Path')
+ax1.tick_params('y', colors='b')
+
+#ax2 = ax1.twinx()
+#ax2.plot(time, Y, color='r', label='Payoff Process')
+#ax2.set_ylabel('Payoff Process', color='r')
+#ax2.tick_params('y', colors='r')
+
+for entry_time in optimal_entry_times:
+    entry_time_value = time[entry_time]
+    ax1.scatter(entry_time_value, X[entry_time], color='g', marker='*', s=100, label='Optimal Entry Point')
+    ax2.scatter(entry_time_value, Y[entry_time], color='g', marker='*', s=100)
+
+for exit_time in optimal_exit_times:
+    exit_time_value = time[exit_time]
+    ax1.scatter(exit_time_value, X[exit_time], color='r', marker='*', s=100, label='Optimal Exit Point')
+    ax2.scatter(exit_time_value, Y[exit_time], color='r', marker='*', s=100)
+
+#lines1, labels1 = ax1.get_legend_handles_labels()
+#lines2, labels2 = ax2.get_legend_handles_labels()
+#ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+
+plt.title('Rough Path, Payoff Process, and Optimal Entry/Exit Points')
+plt.show()
