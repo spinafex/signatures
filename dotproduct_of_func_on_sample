@@ -1,0 +1,40 @@
+import numpy as np
+
+def generate_ou_process(n_timesteps, mu, theta, sigma, x0):
+    dt = 1.0 / n_timesteps
+    x = x0
+    path = [x]
+    for _ in range(n_timesteps):
+        dW = np.random.normal(scale=np.sqrt(dt))
+        x = x + mu * (theta - x) * dt + sigma * dW
+        path.append(x)
+    return np.array(path)
+
+def compute_equation_value(ou_process, l):
+    n_timesteps = len(ou_process) - 1
+    truncated_signatures = []
+    for i in range(n_timesteps):
+        signature = ou_process[i+1] - ou_process[i]
+        truncated_signatures.append(signature)
+    
+    equation_value = 0
+    for signature in truncated_signatures:
+        inner_product = np.dot(l, signature)
+        equation_value += inner_product ** 2
+    
+    return equation_value
+
+# Example usage
+n_timesteps = 250
+mu = 0.1
+theta = 0.5
+sigma = 0.2
+x0 = 1.0
+
+ou_process = generate_ou_process(n_timesteps, mu, theta, sigma, x0)
+
+# Assuming l is a vector representing the optimal point for entering a long position
+l = np.array([0.5, 0.3, 0.2])  # Example values for l
+
+equation_value = compute_equation_value(ou_process, l)
+print(f"Equation value: {equation_value}")
