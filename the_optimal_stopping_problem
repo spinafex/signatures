@@ -1,0 +1,34 @@
+The optimal stopping problem for financial assets has been an active area of research, with various approaches proposed to tackle the problem, particularly in the context of pricing American-style options and related derivative products. Here, I will discuss the major lines of research, focusing on works that have extended to the discretized version of the problem and approaches that have resulted in closed-form, numerical, or deterministic solutions. I will also identify the major research works and researchers involved in this area, while comparing and contrasting the different approaches.
+1.	Analytical and Closed-Form Solutions:
+•	Early works by Merton (1973) and McKean (1965) provided analytical solutions for the optimal stopping problem in the context of pricing American put options under the Black-Scholes model.
+•	Researchers like Carr, Jarrow, and Myneni (1992) and Jacka (1991) derived closed-form solutions for pricing American options under various assumptions and models, such as constant elasticity of variance and stochastic volatility models.
+•	These analytical solutions are typically limited to specific underlying asset dynamics and payoff structures, and they often rely on strong assumptions or simplifications.
+2.	Numerical Methods and Discretization Approaches:
+•	Researchers like Longstaff and Schwartz (2001) proposed the least-squares Monte Carlo (LSM) method, which discretizes the optimal stopping problem and uses least-squares regression to approximate the continuation value at each exercise date.
+•	Andersen and Broadie (2004) developed the primal-dual simulation algorithm, which combines Monte Carlo simulation with stochastic mesh methods to price American-style options.
+•	Researchers like Glasserman (2004) and Broadie and Detemple (2004) explored the use of stochastic mesh methods and high-dimensional lattice techniques for pricing American-style options.
+•	These numerical methods often involve discretizing the underlying asset dynamics and the exercise opportunities, leading to high-dimensional problems that require efficient computational techniques.
+3.	Reinforcement Learning and Deep Learning Approaches:
+•	More recently, researchers have explored the use of reinforcement learning (RL) and deep learning techniques to solve the optimal stopping problem for financial assets.
+•	Becker, Cheridito, and Jentzen (2019)  developed a deep learning method that directly learns the optimal stopping rule from Monte Carlo samples, demonstrating its effectiveness on problems like pricing Bermudan max-call options and callable multi-barrier reverse convertibles.
+•	Lapeyre and Lelong (2020) proposed a deep reinforcement learning approach for pricing American options, combining deep neural networks with Q-learning techniques.
+•	These approaches leverage the power of deep learning and RL to approximate the optimal stopping policy, potentially handling high-dimensional problems and complex payoff structures.
+4.	Discretized Versions and Markov Decision Processes:
+•	Many researchers have formulated the optimal stopping problem for financial assets as a Markov decision process (MDP), which naturally leads to a discretized version of the problem.
+•	Researchers like Tsitsiklis and Van Roy (1999) and Longstaff and Schwartz (2001) have explored the use of dynamic programming and approximate dynamic programming techniques for solving MDPs in the context of option pricing.
+•	Becker, Cheridito, and Jentzen (2019)  explicitly consider the discretized version of the optimal stopping problem, formulating it as a Markov process and using deep learning to learn the optimal stopping rule.
+•	The discretized formulation allows for the application of various numerical and machine learning techniques, while also providing a framework for handling path-dependent payoffs and complex underlying dynamics.
+Major research works and researchers involved in this area include:
+•	Merton (1973), McKean (1965): Early analytical solutions for American put options.
+•	Carr, Jarrow, and Myneni (1992), Jacka (1991): Closed-form solutions for American options under various models.
+•	Longstaff and Schwartz (2001): Least-squares Monte Carlo (LSM) method.
+•	Andersen and Broadie (2004): Primal-dual simulation algorithm.
+•	Glasserman (2004), Broadie and Detemple (2004): Stochastic mesh methods and high-dimensional lattice techniques.
+•	Becker, Cheridito, and Jentzen (2019) : Deep learning method for optimal stopping problems, including discretized versions.
+•	Lapeyre and Lelong (2020): Deep reinforcement learning approach for American option pricing.
+•	Tsitsiklis and Van Roy (1999): Dynamic programming and approximate dynamic programming techniques for MDPs in option pricing.
+The different approaches have their strengths and weaknesses. 
+Analytical and closed-form solutions provide exact results but are often limited to specific models and payoff structures. 
+Numerical methods and discretization approaches offer more flexibility but can be computationally intensive, especially in high dimensions. 
+Reinforcement learning and deep learning techniques show promise in handling complex problems and high-dimensional settings, but their performance and convergence properties may depend on the specific problem and implementation details.
+Overall, the optimal stopping problem for financial assets remains an active area of research, with various approaches being explored to tackle the challenges posed by complex payoff structures, path-dependent features, and high-dimensional underlying dynamics.
