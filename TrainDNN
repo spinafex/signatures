@@ -1,0 +1,160 @@
+import numpy as np
+import torch
+import iisignature
+
+class SignatureGenerator:
+    def __init__(self, d, L, N):
+        self.d = d
+        self.L = L
+        self.N = N
+
+    def generate_rough_path(self, T, theta, mu, sigma):
+        dt = T / self.N
+        times = np.linspace(0, T, self.N+1)
+        dW = sigma * np.random.normal(size=(self.N+1, self.d))
+        X = np.zeros((self.N+1, self.d))
+        X[0] = mu
+
+        for i in range(self.N):
+            X[i+1] = X[i] + theta * (mu - X[i]) * dt + dW[i+1]
+
+        X_rough = np.zeros((self.N+1, self.d, self.d))
+        X_rough[:, np.arange(self.d), np.arange(self.d)] = X
+
+        return X_rough, times
+
+    def get_log_signature(self, X_rough):
+        X_flat = X_rough.reshape(X_rough.shape[0], -1)
+        $print(f"Shape of X_flat: {X_flat.shape}")  # Debug print
+
+        # Prepare for log signature computation with correct dimensions
+        s = iisignature.prepare(X_flat.shape[1], self.L)
+        
+        log_signature = np.array([iisignature.logsig(X_flat[:i+1], s) for i in range(X_rough.shape[0])])
+
+        # Check the expected shape
+        expected_shape = (X_rough.shape[0], iisignature.logsiglength(self.d * self.d, self.L))
+        #print(f"Expected log signature shape: {expected_shape}")
+        #print(f"Computed log signature shape: {log_signature.shape}")
+
+        return log_signature
+
+class DeepSignatureStopping(torch.nn.Module):
+    def __init__(self, d, L, q, activation='relu'):
+        super(DeepSignatureStopping, self).__init__()
+        self.d = d
+        self.L = L
+        self.q = q
+        self.g_N = iisignature.logsiglength(d * d, L)
+
+        # Debug print
+        print(f"g_N (logsiglength): {self.g_N}")
+
+        # Define the DNN architecture
+        self.layers = torch.nn.ModuleList()
+        self.layers.append(torch.nn.Linear(self.g_N, q))
+
+        for _ in range(3):  # Example with 3 hidden layers
+            self.layers.append(torch.nn.Linear(q, q))
+
+        self.layers.append(torch.nn.Linear(q, 1))
+
+        # Set the activation function
+        if activation == 'relu':
+            self.activation = torch.nn.ReLU()
+        else:
+            self.activation = activation
+
+    def forward(self, log_signature):
+        x = log_signature
+        for layer in self.layers[:-1]:
+            x = self.activation(layer(x))
+        stopping_rule = self.layers[-1](x)
+
+        return stopping_rule
+
+    def get_stopping_time(self, log_signature, Z):
+        stopping_rule = self.forward(log_signature)
+        cumsum_squared = torch.cumsum(stopping_rule**2, dim=0)
+        comparison = cumsum_squared >= Z
+        comparison_numeric = comparison.float()  # Convert to float
+
+        # Find the index where the first True occurs
+        stopping_time = torch.argmax(comparison_numeric)
+
+        return stopping_time
+
+class TrainingLoop:
+    def __init__(self, dnn, signature_generator, payoff_function, T, theta, mu, sigma, batch_size=32, num_epochs=100, lr=0.001):
+        self.dnn = dnn
+        self.signature_generator = signature_generator
+        self.payoff_function = payoff_function
+        self.T = T
+        self.theta = theta
+        self.mu = mu
+        self.sigma = sigma
+        self.batch_size = batch_size
+        self.num_epochs = num_epochs
+        self.lr = lr
+
+        self.optimizer = torch.optim.Adam(self.dnn.parameters(), lr=self.lr)
+        self.loss_fn = torch.nn.MSELoss()
+
+    def train(self):
+        for epoch in range(self.num_epochs):
+            batch_losses = []
+            for _ in range(self.batch_size):
+                X_rough, times = self.signature_generator.generate_rough_path(self.T, self.theta, self.mu, self.sigma)
+                log_signature = self.signature_generator.get_log_signature(X_rough)
+                log_signature_tensor = torch.from_numpy(log_signature).float()
+
+                # Ensure gradient tracking
+                log_signature_tensor = log_signature_tensor.requires_grad_()  # Ensure requires_grad=True
+
+                payoff_process = torch.tensor([self.payoff_function(X_rough[i]) for i in range(X_rough.shape[0])])
+
+                Z = np.random.exponential(scale=1.0)
+                stopping_time = self.dnn.get_stopping_time(log_signature_tensor, Z)
+
+                # Compute the expected payoff with proper gradient connection
+                expected_payoff = payoff_process[stopping_time]
+                expected_payoff.requires_grad_()  # Ensure expected_payoff is part of the computation graph
+
+                loss = -expected_payoff
+
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+
+                batch_losses.append(loss.item())
+
+            epoch_loss = sum(batch_losses) / len(batch_losses)
+            print(f"Epoch {epoch+1}/{self.num_epochs}, Loss: {epoch_loss:.4f}")
+
+        print("Training completed.")
+
+# Parameters
+d = 2          # Dimension
+T = 1.0        # Time interval
+N = 50         # Number of time steps
+L = 3          # Truncation level for the log-signature
+theta = 0.7    # Mean reversion speed
+mu = 0.0       # Long-term mean
+sigma = 0.1    # Volatility
+q = 64         # Output dimension of the affine maps A_i
+
+# Define the payoff function
+def payoff_function(X):
+    return torch.max(torch.from_numpy(X[:, 0]))
+
+# Generate the signature generator
+signature_generator = SignatureGenerator(d, L, N)
+
+# Initialize the DNN
+dnn = DeepSignatureStopping(d, L, q)
+
+# Initialize the training loop
+training_loop = TrainingLoop(dnn, signature_generator, payoff_function, T, theta, mu, sigma)
+
+# Train the DNN
+training_loop.train()
