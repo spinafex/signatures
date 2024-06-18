@@ -1,0 +1,220 @@
+import numpy as np
+import torch
+import iisignature
+import matplotlib.pyplot as plt
+
+class SignatureGenerator:
+    def __init__(self, d, L, N):
+        self.d = d
+        self.L = L
+        self.N = N
+
+    def generate_rough_path(self, T, theta, mu, sigma):
+        dt = T / self.N
+        times = np.linspace(0, T, self.N+1)
+        dW = sigma * np.random.normal(size=(self.N+1, self.d))
+        X = np.zeros((self.N+1, self.d))
+        X[0] = mu
+
+        for i in range(self.N):
+            X[i+1] = X[i] + theta * (mu - X[i]) * dt + dW[i+1]
+
+        X_rough = np.zeros((self.N+1, self.d, self.d))
+        X_rough[:, np.arange(self.d), np.arange(self.d)] = X
+
+        return X_rough, times
+
+    def get_log_signature(self, X_rough):
+        X_flat = X_rough.reshape(X_rough.shape[0], -1)
+        s = iisignature.prepare(X_flat.shape[1], self.L)
+        log_signature = np.array([iisignature.logsig(X_flat[:i+1], s) for i in range(X_rough.shape[0])])
+        return log_signature
+
+class DeepSignatureStopping(torch.nn.Module):
+    def __init__(self, d, L, q, activation='relu'):
+        super(DeepSignatureStopping, self).__init__()
+        self.d = d
+        self.L = L
+        self.q = q
+        self.g_N = iisignature.logsiglength(d * d, L)
+
+        self.layers = torch.nn.ModuleList()
+        self.layers.append(torch.nn.Linear(self.g_N, q))
+
+        for _ in range(3):
+            self.layers.append(torch.nn.Linear(q, q))
+
+        self.layers.append(torch.nn.Linear(q, 1))
+
+        if activation == 'relu':
+            self.activation = torch.nn.ReLU()
+        else:
+            self.activation = activation
+
+    def forward(self, log_signature):
+        x = log_signature
+        for layer in self.layers[:-1]:
+            x = self.activation(layer(x))
+        stopping_rule = self.layers[-1](x)
+
+        return stopping_rule
+
+    def get_stopping_time(self, log_signature, k):
+        stopping_rule = self.forward(log_signature)
+        cumsum_squared = torch.cumsum(stopping_rule**2, dim=0)
+        comparison = cumsum_squared >= k
+        comparison_numeric = comparison.float()
+        stopping_time = torch.argmax(comparison_numeric)
+
+        return stopping_time
+
+class TrainingLoop:
+    def __init__(self, dnn, signature_generator, payoff_function, T, theta, mu, sigma, batch_size=32, num_epochs=100, lr=0.001):
+        self.dnn = dnn
+        self.signature_generator = signature_generator
+        self.payoff_function = payoff_function
+        self.T = T
+        self.theta = theta
+        self.mu = mu
+        self.sigma = sigma
+        self.batch_size = batch_size
+        self.num_epochs = num_epochs
+        self.lr = lr
+
+        self.optimizer = torch.optim.Adam(self.dnn.parameters(), lr=self.lr)
+        self.loss_fn = self.define_loss_function()
+
+    def define_loss_function(self):
+        def loss_function(l, samples, payoff_processes, N, k, mu):
+            M = len(samples)
+            loss = 0
+
+            for m in range(M):
+                sample = samples[m]
+                payoff_process = payoff_processes[m]
+
+                augmented_signatures = []
+                for i in range(len(sample)):
+                    X_flat = sample[:i+1].reshape(-1)
+                    s = iisignature.prepare(X_flat.shape[0], N)
+                    augmented_signatures.append(iisignature.logsig(X_flat, s))
+
+                Y0 = payoff_process[0]
+                loss_term = -Y0
+
+                for j in range(len(sample) - 1):
+                    stopping_rule_value = torch.dot(l, augmented_signatures[j])
+                    cumsum_squared = sum(stopping_rule_value ** 2)
+
+                    Fk = 1 / (1 + torch.exp(-mu * (cumsum_squared - k)))
+                    Gk = 1 - Fk
+
+                    loss_term -= Gk * (payoff_process[j+1] - payoff_process[j])
+
+                loss += loss_term
+
+            return loss / M
+
+        return loss_function
+
+    def train(self):
+        for epoch in range(self.num_epochs):
+            batch_losses = []
+            for _ in range(self.batch_size):
+                X_rough, times = self.signature_generator.generate_rough_path(self.T, self.theta, self.mu, self.sigma)
+                log_signature = self.signature_generator.get_log_signature(X_rough)
+                log_signature_tensor = torch.from_numpy(log_signature).float()
+
+                log_signature_tensor = log_signature_tensor.requires_grad_()
+
+                payoff_process = torch.tensor([self.payoff_function(X_rough[i], times[i]) for i in range(X_rough.shape[0])])
+
+                k = np.random.exponential(scale=1.0)
+                stopping_time = self.dnn.get_stopping_time(log_signature_tensor, k)
+
+                expected_payoff = payoff_process[stopping_time]
+                expected_payoff.requires_grad_()
+
+                loss = -expected_payoff
+
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+
+                batch_losses.append(loss.item())
+
+            epoch_loss = sum(batch_losses) / len(batch_losses)
+            print(f"Epoch {epoch+1}/{self.num_epochs}, Loss: {epoch_loss:.4f}")
+
+        print("Training completed.")
+
+class PolicyDeployer:
+    def __init__(self, dnn, signature_generator, payoff_function, T, theta, mu, sigma):
+        self.dnn = dnn
+        self.signature_generator = signature_generator
+        self.payoff_function = payoff_function
+        self.T = T
+        self.theta = theta
+        self.mu = mu
+        self.sigma = sigma
+
+    def deploy(self):
+        X_rough, times = self.signature_generator.generate_rough_path(self.T, self.theta, self.mu, self.sigma)
+        log_signature = self.signature_generator.get_log_signature(X_rough)
+        log_signature_tensor = torch.from_numpy(log_signature).float()
+
+        k = np.float64(0.05) #np.random.exponential(scale=1.0)
+        stopping_time = self.dnn.get_stopping_time(log_signature_tensor, k).item()
+
+        self.plot_path_with_stopping_points(X_rough, times, stopping_time)
+
+    def plot_path_with_stopping_points(self, X_rough, times, stopping_time):
+        payoff_values = [self.payoff_function(X_rough[i], times[i]).item() for i in range(X_rough.shape[0])]
+        
+        plt.figure(figsize=(12, 6))
+        # Plot the sample path
+        plt.plot(times, X_rough[:, 0, 0], label='Sample Path')
+
+        # Plot the payoff function values
+        plt.plot(times, payoff_values, label='Payoff Function', linestyle='--')
+
+        # Mark the entry and exit points
+        plt.axvline(times[stopping_time], color='r', linestyle='--', label='Stopping Time')
+
+        plt.legend()
+        plt.xlabel('Time')
+        plt.ylabel('Value')
+        plt.title('Sample Path with Payoff Function and Stopping Time')
+        plt.show()
+
+# Parameters
+d = 2
+T = 1.0
+N = 50
+L = 3
+theta = 0.7
+mu = 0.0
+sigma = 0.1
+q = 64
+r = 0.05  # 5% annualized interest rate
+K = np.random.exponential(scale=1.0) #100   # Strike price (example value)
+
+# Define the payoff function
+def payoff_function(X, t):
+    return np.exp(-r * t) * (K - np.exp(X[0, 0]))
+
+# Generate the signature generator
+signature_generator = SignatureGenerator(d, L, N)
+
+# Initialize the DNN
+dnn = DeepSignatureStopping(d, L, q)
+
+# Initialize the training loop
+training_loop = TrainingLoop(dnn, signature_generator, payoff_function, T, theta, mu, sigma)
+
+# Train the DNN
+training_loop.train()
+
+# Deploy the learned policy
+policy_deployer = PolicyDeployer(dnn, signature_generator, payoff_function, T, theta, mu, sigma)
+policy_deployer.deploy()
